@@ -9,8 +9,9 @@ class CanvasPage extends StatefulWidget {
   _CanvasPageState createState() => _CanvasPageState();
 }
 
+// canvas_page.dart の修正部分
 class _CanvasPageState extends State<CanvasPage> {
-  List<Offset> points = [];
+  List<List<Offset>> strokes = [];
   List<Color> selectedColors = [];
   bool isGradientMode = true;
   double penSize = 5.0;
@@ -78,24 +79,22 @@ class _CanvasPageState extends State<CanvasPage> {
             child: GestureDetector(
               onPanStart: (details) {
                 setState(() {
-                  points.add(details.localPosition);
+                  strokes.add([details.localPosition]);
                 });
               },
               onPanUpdate: (details) {
                 setState(() {
-                  points.add(details.localPosition);
+                  strokes.last.add(details.localPosition);
                 });
               },
               onPanEnd: (details) {
-                setState(() {
-                  points.add(Offset.infinite); // 線の区切りとしてinfiniteを追加
-                });
+                // 線の描画終了時の処理（必要に応じて）
               },
               child: CustomPaint(
                 size: Size.infinite,
                 painter: isGradientMode
-                    ? GradientPainter(selectedColors)
-                    : GradientDrawingPainter(points, selectedColors, penSize),
+                    ? GradientPainter(selectedColors, strokes: strokes, strokeWidth: penSize)
+                    : GradientPainter(selectedColors, strokes: strokes, strokeWidth: penSize),
               ),
             ),
           ),
@@ -104,7 +103,7 @@ class _CanvasPageState extends State<CanvasPage> {
       floatingActionButton: FloatingActionButton(
         onPressed: () {
           setState(() {
-            points.clear();
+            strokes.clear();
           });
         },
         child: Icon(Icons.delete),
@@ -113,16 +112,16 @@ class _CanvasPageState extends State<CanvasPage> {
   }
 }
 
-class GradientDrawingPainter extends CustomPainter {
-  final List<Offset> points;
+class GradientStrokePainter extends CustomPainter {
+  final List<List<Offset>> strokes;
   final List<Color> colors;
   final double penSize;
 
-  GradientDrawingPainter(this.points, this.colors, this.penSize);
+  GradientStrokePainter(this.strokes, this.colors, this.penSize);
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (colors.isEmpty || points.isEmpty) return;
+    if (colors.isEmpty || strokes.isEmpty) return;
 
     final paint = Paint()
       ..strokeWidth = penSize
@@ -130,18 +129,39 @@ class GradientDrawingPainter extends CustomPainter {
       ..strokeJoin = StrokeJoin.round
       ..style = PaintingStyle.stroke;
 
-    for (int i = 0; i < points.length - 1; i++) {
-      if (points[i] != Offset.infinite && points[i + 1] != Offset.infinite) {
-        // グラデーションの色を変化させる
-        final colorIndex = i % colors.length;
-        paint.color = colors[colorIndex];
+    for (var stroke in strokes) {
+      if (stroke.length < 2) continue;
 
-        // 2点間を線で結ぶ
-        canvas.drawLine(points[i], points[i + 1], paint);
+      // 各ストロークのパスを作成
+      final path = Path();
+      path.moveTo(stroke[0].dx, stroke[0].dy);
+
+      for (int i = 1; i < stroke.length; i++) {
+        path.lineTo(stroke[i].dx, stroke[i].dy);
       }
+
+      // ストロークの長さに基づいてグラデーションを作成
+      final pathMetrics = path.computeMetrics().first;
+      final gradient = ui.Gradient.linear(
+        stroke.first,
+        stroke.last,
+        colors,
+        _createStops(colors.length),
+      );
+
+      paint.shader = gradient;
+      canvas.drawPath(path, paint);
     }
   }
 
+  List<double> _createStops(int count) {
+    List<double> stops = [];
+    for (int i = 0; i < count; i++) {
+      stops.add(i / (count - 1));
+    }
+    return stops;
+  }
+
   @override
-  bool shouldRepaint(GradientDrawingPainter oldDelegate) => true;
+  bool shouldRepaint(GradientStrokePainter oldDelegate) => true;
 }
